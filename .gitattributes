@@ -1,0 +1,14 @@
+# Keep text files consistent across Windows, macOS, and Linux checkouts.
+* text=auto eol=lf
+
+# Windows launcher must retain CRLF line endings.
+gradlew.bat text eol=crlf
+
+# Binary assets must never be line-ending normalized.
+*.png binary
+*.jar binary
+*.dm binary
+*.apk binary
+*.aab binary
+*.jks binary
+*.keystore binary
