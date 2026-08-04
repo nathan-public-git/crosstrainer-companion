@@ -1,4 +1,23 @@
-﻿app/build
-.gradle
-.kotlin
+# Android / Gradle build outputs
+app/build/
+build/
+.gradle/
+.kotlin/
+
+# Machine-specific Android SDK configuration
 local.properties
+
+# Local IDE state
+.idea/
+*.iml
+
+# Release artifacts and signing material (never commit these)
+app/release/
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# OS files
+.DS_Store
+Thumbs.db

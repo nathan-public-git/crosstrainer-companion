@@ -6,6 +6,12 @@ Crosstrainer Companion is an Android application that connects to a Sole E95 ell
 
 The objective is to provide a large, easy-to-read workout dashboard that can be viewed while exercising.
 
+## Build from a fresh checkout
+
+This GPLv3 project has no checked-in SDK paths, IDE settings, keystores, or generated APKs. Install JDK 17 and the Android SDK (API 36), set `JAVA17_HOME`, `ANDROID_HOME`, and `ANDROID_SDK_ROOT` for your machine, then follow [CONTRIBUTING.md](CONTRIBUTING.md) to build and test it from the command line.
+
+For a signed private APK, see [docs/PRIVATE_RELEASE.md](docs/PRIVATE_RELEASE.md). Never commit a keystore, signing password, or `local.properties`.
+
 This application intentionally avoids subscriptions, cloud accounts, advertisements, and unnecessary complexity.
 
 The primary design goals are:
