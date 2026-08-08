@@ -3,6 +3,7 @@ package com.crosstrainer.companion.ui.dashboard
 import com.crosstrainer.companion.data.HeartRateConnectionState
 import com.crosstrainer.companion.data.HeartRateDevice
 import com.crosstrainer.companion.data.HeartRateMonitorState
+import com.crosstrainer.companion.data.HeartRateSample
 import com.crosstrainer.companion.data.FtmsDiagnosticState
 import com.crosstrainer.companion.data.TrainingProfileState
 import com.crosstrainer.companion.model.HeartRateZone
@@ -24,6 +25,8 @@ data class DashboardUiState(
     val estimatedMaximumHeartRate: Int? = null,
     val currentHeartRateZone: HeartRateZone = HeartRateZone.UNAVAILABLE,
     val averageHeartRateZone: HeartRateZone = HeartRateZone.UNAVAILABLE,
+    val recentHeartRateSamples: List<HeartRateSample> = emptyList(),
+    val activeWorkoutDurationSeconds: Long = 0,
 ) {
     companion object {
         fun from(
@@ -48,6 +51,7 @@ data class DashboardUiState(
             estimatedMaximumHeartRate = profile.age?.let(::estimatedMaximumHeartRate),
             currentHeartRateZone = heartRateZone(currentBpm, profile.age),
             averageHeartRateZone = heartRateZone(averageBpm, profile.age),
+            recentHeartRateSamples = heartRate.recentSamples,
         )
         }
 

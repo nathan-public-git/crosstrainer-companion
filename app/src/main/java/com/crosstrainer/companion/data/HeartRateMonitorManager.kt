@@ -25,6 +25,8 @@ import java.util.UUID
 
 data class HeartRateDevice(val address: String, val name: String)
 
+data class HeartRateSample(val recordedAtMillis: Long, val bpm: Int)
+
 enum class HeartRateConnectionState { DISCONNECTED, CONNECTING, CONNECTED }
 
 data class HeartRateMonitorState(
@@ -34,10 +36,14 @@ data class HeartRateMonitorState(
     val connectedDeviceName: String? = null,
     val currentBpm: Int? = null,
     val averageBpm: Int? = null,
+    val recentSamples: List<HeartRateSample> = emptyList(),
     val error: String? = null,
 )
 
-class HeartRateMonitorManager(context: Context) {
+class HeartRateMonitorManager(
+    context: Context,
+    private val onSessionCompleted: (averageBpm: Int) -> Unit = {},
+) {
     private val appContext = context.applicationContext
     private val adapter: BluetoothAdapter? =
         appContext.getSystemService(BluetoothManager::class.java)?.adapter
@@ -106,6 +112,7 @@ class HeartRateMonitorManager(context: Context) {
                 connectedDeviceName = it.devices.firstOrNull { item -> item.address == address }?.name,
                 currentBpm = null,
                 averageBpm = null,
+                recentSamples = emptyList(),
                 error = null,
             )
         }
@@ -114,6 +121,7 @@ class HeartRateMonitorManager(context: Context) {
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        completeSession()
         gatt?.disconnect()
         gatt?.close()
         gatt = null
@@ -123,6 +131,7 @@ class HeartRateMonitorManager(context: Context) {
                 connectedDeviceName = null,
                 currentBpm = null,
                 averageBpm = null,
+                recentSamples = emptyList(),
             )
         }
     }
@@ -135,6 +144,7 @@ class HeartRateMonitorManager(context: Context) {
                 _state.update { it.copy(connectionState = HeartRateConnectionState.CONNECTING, error = null) }
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                completeSession()
                 gatt.close()
                 if (this@HeartRateMonitorManager.gatt === gatt) this@HeartRateMonitorManager.gatt = null
                 _state.update {
@@ -143,6 +153,7 @@ class HeartRateMonitorManager(context: Context) {
                         connectedDeviceName = null,
                         currentBpm = null,
                         averageBpm = null,
+                        recentSamples = emptyList(),
                         error = if (status == BluetoothGatt.GATT_SUCCESS) it.error else "Connection lost ($status). Retry the monitor.",
                     )
                 }
@@ -202,7 +213,18 @@ class HeartRateMonitorManager(context: Context) {
     private fun handleMeasurement(value: ByteArray) {
         val bpm = HeartRateMeasurementParser.parseBpm(value) ?: return
         session = session.add(bpm)
-        _state.update { it.copy(currentBpm = bpm, averageBpm = session.averageBpm, error = null) }
+        val now = System.currentTimeMillis()
+        _state.update { current ->
+            val samples = (current.recentSamples + HeartRateSample(now, bpm))
+                .dropWhile { it.recordedAtMillis < now - HISTORY_WINDOW_MILLIS }
+            current.copy(currentBpm = bpm, averageBpm = session.averageBpm, recentSamples = samples, error = null)
+        }
+    }
+
+    private fun completeSession() {
+        val averageBpm = session.averageBpm ?: return
+        session = HeartRateSession()
+        onSessionCompleted(averageBpm)
     }
 
     fun close() {
@@ -211,6 +233,7 @@ class HeartRateMonitorManager(context: Context) {
     }
 
     companion object {
+        private const val HISTORY_WINDOW_MILLIS = 10 * 60 * 1000L
         private val HEART_RATE_SERVICE = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
         private val HEART_RATE_MEASUREMENT = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
         private val CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
