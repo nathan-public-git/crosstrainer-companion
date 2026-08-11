@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.input.KeyboardType
@@ -723,23 +724,73 @@ private fun HeartRateSessionRow(session: SavedHeartRateSession) {
 @Composable
 private fun TrackerTrendChart(values: List<Double>, modifier: Modifier = Modifier) {
     val trendColor = MaterialTheme.colorScheme.primary
+    val averageLineColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val movingAverageColor = MaterialTheme.colorScheme.tertiary
+    val average = values.takeIf { it.isNotEmpty() }?.average()
+    val movingAverages = movingAverages(values)
     Card(
         modifier = modifier.fillMaxWidth().height(220.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        Canvas(Modifier.fillMaxSize().padding(16.dp)) {
-            if (values.size < 2) return@Canvas
-            val minimum = values.minOrNull() ?: return@Canvas
-            val maximum = values.maxOrNull() ?: return@Canvas
-            val span = maxOf(1.0, maximum - minimum)
-            values.zipWithNext().forEachIndexed { index, (start, end) ->
-                val startX = size.width * index / (values.size - 1)
-                val endX = size.width * (index + 1) / (values.size - 1)
-                val startY = size.height - ((start - minimum) / span * size.height).toFloat()
-                val endY = size.height - ((end - minimum) / span * size.height).toFloat()
-                drawLine(trendColor, Offset(startX, startY), Offset(endX, endY), 3.dp.toPx(), cap = StrokeCap.Round)
+        Box(Modifier.fillMaxSize()) {
+            Canvas(Modifier.fillMaxSize().padding(16.dp)) {
+                if (values.isEmpty()) return@Canvas
+                val minimum = values.minOrNull() ?: return@Canvas
+                val maximum = values.maxOrNull() ?: return@Canvas
+                val span = maxOf(1.0, maximum - minimum)
+                val averageY = size.height - (((average ?: return@Canvas) - minimum) / span * size.height).toFloat()
+                drawLine(
+                    color = averageLineColor,
+                    start = Offset(0f, averageY),
+                    end = Offset(size.width, averageY),
+                    strokeWidth = 2.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 6.dp.toPx())),
+                )
+                values.zipWithNext().forEachIndexed { index, (start, end) ->
+                    val startX = size.width * index / (values.size - 1)
+                    val endX = size.width * (index + 1) / (values.size - 1)
+                    val startY = size.height - ((start - minimum) / span * size.height).toFloat()
+                    val endY = size.height - ((end - minimum) / span * size.height).toFloat()
+                    drawLine(trendColor, Offset(startX, startY), Offset(endX, endY), 3.dp.toPx(), cap = StrokeCap.Round)
+                }
+                movingAverages.zipWithNext().forEachIndexed { index, (start, end) ->
+                    val startX = size.width * index / (movingAverages.size - 1)
+                    val endX = size.width * (index + 1) / (movingAverages.size - 1)
+                    val startY = size.height - ((start - minimum) / span * size.height).toFloat()
+                    val endY = size.height - ((end - minimum) / span * size.height).toFloat()
+                    drawLine(movingAverageColor, Offset(startX, startY), Offset(endX, endY), 2.dp.toPx(), cap = StrokeCap.Round)
+                }
+            }
+            average?.let {
+                Text(
+                    text = "Average ${"%.1f".format(it)}",
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = averageLineColor,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            if (movingAverages.size > 1) {
+                Text(
+                    text = "Moving average",
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = movingAverageColor,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
+    }
+}
+
+private fun movingAverages(values: List<Double>): List<Double> {
+    val windowSize = when {
+        values.size >= 9 -> 5
+        values.size >= 4 -> 3
+        else -> 2
+    }
+    return values.indices.map { index ->
+        values.subList(maxOf(0, index - windowSize + 1), index + 1).average()
     }
 }
 
