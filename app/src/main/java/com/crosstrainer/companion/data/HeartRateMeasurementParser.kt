@@ -14,8 +14,16 @@ object HeartRateMeasurementParser {
     }
 }
 
-data class HeartRateSession(val total: Long = 0, val samples: Int = 0) {
+data class HeartRateSession(
+    val total: Long = 0,
+    val samples: Int = 0,
+    val maximumBpm: Int? = null,
+) {
     val averageBpm: Int? get() = if (samples == 0) null else (total / samples).toInt()
 
-    fun add(bpm: Int): HeartRateSession = copy(total = total + bpm, samples = samples + 1)
+    fun add(bpm: Int): HeartRateSession = copy(
+        total = total + bpm,
+        samples = samples + 1,
+        maximumBpm = maxOf(maximumBpm ?: bpm, bpm),
+    )
 }

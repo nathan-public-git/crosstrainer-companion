@@ -79,6 +79,9 @@ data class ConsoleRpmSession(
     )
 }
 
+data class WorkoutRpmMetrics(val averageRpm: Int, val maximumRpm: Int)
+private data class ConsoleRpmSample(val recordedAtMillis: Long, val rpm: Int)
+
 /** Extracts standard FTMS instantaneous cadence and converts its 0.5-RPM units for console display. */
 fun parseIndoorBikeConsoleRpm(payload: ByteArray): Int? {
     if (payload.size < 2) return null
@@ -155,6 +158,15 @@ class FtmsManager(
     private var gatt: BluetoothGatt? = null
     private val subscriptionQueue = ArrayDeque<BluetoothGattCharacteristic>()
     private var rpmSession = ConsoleRpmSession()
+    private val rpmSamples = mutableListOf<ConsoleRpmSample>()
+
+    fun workoutRpmMetrics(startedAtMillis: Long, completedAtMillis: Long): WorkoutRpmMetrics? = synchronized(rpmSamples) {
+        val samples = rpmSamples.filter { it.recordedAtMillis in startedAtMillis..completedAtMillis }
+        if (samples.isEmpty()) null else WorkoutRpmMetrics(
+            averageRpm = samples.map(ConsoleRpmSample::rpm).average().roundToInt(),
+            maximumRpm = samples.maxOf(ConsoleRpmSample::rpm),
+        )
+    }
 
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
@@ -206,6 +218,7 @@ class FtmsManager(
         stopScan()
         disconnect()
         rpmSession = ConsoleRpmSession()
+        synchronized(rpmSamples) { rpmSamples.clear() }
         val device = runCatching { adapter?.getRemoteDevice(address) }.getOrNull()
         if (device == null) {
             _state.update { it.copy(error = "That FTMS candidate is no longer available.") }
@@ -234,6 +247,7 @@ class FtmsManager(
     @SuppressLint("MissingPermission")
     fun disconnect() {
         rpmSession = ConsoleRpmSession()
+        synchronized(rpmSamples) { rpmSamples.clear() }
         subscriptionQueue.clear()
         val activeGatt = gatt
         gatt = null
@@ -264,6 +278,7 @@ class FtmsManager(
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 rpmSession = ConsoleRpmSession()
+                synchronized(rpmSamples) { rpmSamples.clear() }
                 gatt.close()
                 if (this@FtmsManager.gatt !== gatt) return
                 this@FtmsManager.gatt = null
@@ -368,7 +383,10 @@ class FtmsManager(
             "$time  ${uuid.shortUuid()}  ${value.toHex()}"
         } else null
         val rpm = if (uuid == INDOOR_BIKE_DATA) parseIndoorBikeConsoleRpm(value) else null
-        if (rpm != null) rpmSession = rpmSession.add(rpm)
+        if (rpm != null) {
+            rpmSession = rpmSession.add(rpm)
+            synchronized(rpmSamples) { rpmSamples += ConsoleRpmSample(System.currentTimeMillis(), rpm) }
+        }
         _state.update {
             it.copy(
                 rawNotifications = if (entry != null) {

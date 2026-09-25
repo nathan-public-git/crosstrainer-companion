@@ -40,9 +40,17 @@ data class HeartRateMonitorState(
     val error: String? = null,
 )
 
+data class CompletedHeartRateWorkout(
+    val averageBpm: Int,
+    val maximumBpm: Int,
+    val durationSeconds: Long,
+    val startedAtMillis: Long,
+    val completedAtMillis: Long,
+)
+
 class HeartRateMonitorManager(
     context: Context,
-    private val onSessionCompleted: (averageBpm: Int) -> Unit = {},
+    private val onSessionCompleted: (CompletedHeartRateWorkout) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
     private val adapter: BluetoothAdapter? =
@@ -52,6 +60,7 @@ class HeartRateMonitorManager(
 
     private var gatt: BluetoothGatt? = null
     private var session = HeartRateSession()
+    private var sessionStartedAtMillis: Long? = null
 
     val isBluetoothAvailable: Boolean get() = adapter != null
     val isBluetoothEnabled: Boolean get() = adapter?.isEnabled == true
@@ -106,6 +115,7 @@ class HeartRateMonitorManager(
             return
         }
         session = HeartRateSession()
+        sessionStartedAtMillis = null
         _state.update {
             it.copy(
                 connectionState = HeartRateConnectionState.CONNECTING,
@@ -189,6 +199,7 @@ class HeartRateMonitorManager(
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (descriptor.uuid == CLIENT_CHARACTERISTIC_CONFIG && status == BluetoothGatt.GATT_SUCCESS) {
+                sessionStartedAtMillis = System.currentTimeMillis()
                 _state.update { it.copy(connectionState = HeartRateConnectionState.CONNECTED, error = null) }
             } else if (descriptor.uuid == CLIENT_CHARACTERISTIC_CONFIG) {
                 _state.update { it.copy(error = "Heart-rate subscription failed ($status).") }
@@ -212,8 +223,10 @@ class HeartRateMonitorManager(
 
     private fun handleMeasurement(value: ByteArray) {
         val bpm = HeartRateMeasurementParser.parseBpm(value) ?: return
-        session = session.add(bpm)
         val now = System.currentTimeMillis()
+        // A measurement proves the session is active even if a device omits its descriptor-write callback.
+        if (sessionStartedAtMillis == null) sessionStartedAtMillis = now
+        session = session.add(bpm)
         _state.update { current ->
             val samples = (current.recentSamples + HeartRateSample(now, bpm))
                 .dropWhile { it.recordedAtMillis < now - HISTORY_WINDOW_MILLIS }
@@ -223,8 +236,21 @@ class HeartRateMonitorManager(
 
     private fun completeSession() {
         val averageBpm = session.averageBpm ?: return
+        val completedAtMillis = System.currentTimeMillis()
+        val startedAtMillis = sessionStartedAtMillis ?: completedAtMillis
+        val durationSeconds = ((completedAtMillis - startedAtMillis) / 1_000L).coerceAtLeast(0)
+        val maximumBpm = session.maximumBpm ?: averageBpm
         session = HeartRateSession()
-        onSessionCompleted(averageBpm)
+        sessionStartedAtMillis = null
+        onSessionCompleted(
+            CompletedHeartRateWorkout(
+                averageBpm = averageBpm,
+                maximumBpm = maximumBpm,
+                durationSeconds = durationSeconds,
+                startedAtMillis = startedAtMillis,
+                completedAtMillis = completedAtMillis,
+            ),
+        )
     }
 
     fun close() {

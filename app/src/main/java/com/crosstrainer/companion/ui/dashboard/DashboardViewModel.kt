@@ -26,8 +26,16 @@ class DashboardViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
     private val heartRateSessions = HeartRateSessionStore(application)
-    private val heartRateMonitor = HeartRateMonitorManager(application) { averageBpm ->
-        heartRateSessions.save(averageBpm)
+    private val heartRateMonitor = HeartRateMonitorManager(application) { workout ->
+        val rpm = ftmsManager.workoutRpmMetrics(workout.startedAtMillis, workout.completedAtMillis)
+        heartRateSessions.save(
+            averageBpm = workout.averageBpm,
+            maximumBpm = workout.maximumBpm,
+            averageRpm = rpm?.averageRpm,
+            maximumRpm = rpm?.maximumRpm,
+            durationSeconds = workout.durationSeconds,
+            completedAtMillis = workout.completedAtMillis,
+        )
     }
     private val metricsSource = PendingWorkoutMetricsSource()
     private val trainingProfile = TrainingProfileStore(application)

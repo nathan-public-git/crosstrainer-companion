@@ -10,6 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
@@ -78,6 +81,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
+import com.crosstrainer.companion.BuildConfig
 import com.crosstrainer.companion.data.HeartRateConnectionState
 import com.crosstrainer.companion.data.HeartRateDevice
 import com.crosstrainer.companion.data.FtmsCandidate
@@ -101,6 +105,7 @@ import com.crosstrainer.companion.ui.theme.ZoneVigorous
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import kotlin.math.abs
 
 @Composable
 fun DashboardRoute(viewModel: DashboardViewModel = viewModel()) {
@@ -188,19 +193,29 @@ fun DashboardRoute(viewModel: DashboardViewModel = viewModel()) {
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                Text("Crosstrainer Companion", modifier = Modifier.padding(24.dp), style = MaterialTheme.typography.titleLarge)
-                DashboardDestination.entries.forEach { destination ->
-                    NavigationDrawerItem(
-                        label = { Text(destination.label) },
-                        selected = selectedDestination == destination,
-                        onClick = {
-                            if (destination == DashboardDestination.TRAINING_PROFILE) {
-                                selectedDestination = DashboardDestination.DASHBOARD
-                                showTrainingProfile = true
-                            } else selectedDestination = destination
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                Column(Modifier.fillMaxHeight()) {
+                    Text("Crosstrainer Companion", modifier = Modifier.padding(24.dp), style = MaterialTheme.typography.titleLarge)
+                    DashboardDestination.entries.forEach { destination ->
+                        NavigationDrawerItem(
+                            label = { Text(destination.label) },
+                            selected = selectedDestination == destination,
+                            onClick = {
+                                if (destination == DashboardDestination.TRAINING_PROFILE) {
+                                    selectedDestination = DashboardDestination.DASHBOARD
+                                    showTrainingProfile = true
+                                } else selectedDestination = destination
+                                scope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    HorizontalDivider()
+                    Text(
+                        text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -642,9 +657,14 @@ private fun TrackerPlaceholderScreen(
     onOpenNavigation: () -> Unit,
 ) {
     val isWeight = destination == DashboardDestination.WEIGHT_TRACKER
-    val values = entries.mapNotNull { if (isWeight) it.weight else it.bloodSugar }.takeLast(90)
-    val latest = values.lastOrNull()
+    val points = entries.mapNotNull { entry ->
+        (if (isWeight) entry.weight else entry.bloodSugar)?.let { value ->
+            TrackerChartPoint(value, entry.date)
+        }
+    }.takeLast(90)
+    val latest = points.lastOrNull()?.value
     val unit = if (isWeight) "lb" else "mmol/L"
+    var selectedPoint by remember(points) { mutableStateOf<TrackerChartPoint?>(null) }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp)) {
             DashboardHeader(onOpenNavigation)
@@ -658,9 +678,17 @@ private fun TrackerPlaceholderScreen(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(20.dp))
-            TrackerTrendChart(values = values)
+            TrackerTrendChart(points = points, onPointSelected = { selectedPoint = it })
             Spacer(Modifier.height(12.dp))
-            Text("Last ${values.size} recorded day${if (values.size == 1) "" else "s"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (points.isNotEmpty()) {
+                Text("Tap or drag across the chart to inspect a measurement.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+            }
+            Text("Last ${points.size} recorded day${if (points.size == 1) "" else "s"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            selectedPoint?.let { point ->
+                Spacer(Modifier.height(8.dp))
+                TrackerSelectionDetails(point, unit)
+            }
         }
     }
 }
@@ -671,8 +699,15 @@ private fun HeartRateTrackerScreen(
     onOpenNavigation: () -> Unit,
 ) {
     val recentSessions = sessions.takeLast(30)
-    val averages = recentSessions.map { it.averageBpm.toDouble() }
+    val points = recentSessions.map { session ->
+        TrackerChartPoint(
+            value = session.averageBpm.toDouble(),
+            dateLabel = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                .format(Date(session.completedAtMillis)),
+        )
+    }
     val latest = recentSessions.lastOrNull()
+    var selectedPoint by remember(points) { mutableStateOf<TrackerChartPoint?>(null) }
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().statusBarsPadding().padding(20.dp).verticalScroll(rememberScrollState()),
@@ -689,13 +724,21 @@ private fun HeartRateTrackerScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "A session is saved when you disconnect your heart-rate monitor.",
+                "A session and its duration are saved when you disconnect your heart-rate monitor.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(20.dp))
-            TrackerTrendChart(values = averages)
+            TrackerTrendChart(points = points, onPointSelected = { selectedPoint = it })
             Spacer(Modifier.height(12.dp))
+            if (points.isNotEmpty()) {
+                Text("Tap or drag across the chart to inspect a session.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+            }
             Text("Recent session averages (${recentSessions.size})", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            selectedPoint?.let { point ->
+                Spacer(Modifier.height(8.dp))
+                TrackerSelectionDetails(point, "BPM")
+            }
             recentSessions.asReversed().forEach { session ->
                 HeartRateSessionRow(session)
             }
@@ -714,26 +757,82 @@ private fun HeartRateSessionRow(session: SavedHeartRateSession) {
                 DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(session.completedAtMillis)),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Text("Completed monitor workout", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                session.durationSeconds?.let(::formatSessionDuration) ?: "Duration not recorded",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                formatWorkoutMetrics(session),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Text("${session.averageBpm} BPM", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        Text("Avg ${session.averageBpm} BPM", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
     }
     HorizontalDivider()
 }
 
+private fun formatWorkoutMetrics(session: SavedHeartRateSession): String {
+    val metrics = buildList {
+        session.maximumBpm?.let { add("Peak HR $it BPM") }
+        session.averageRpm?.let { add("Avg $it RPM") }
+        session.maximumRpm?.let { add("Peak RPM $it") }
+    }
+    return metrics.takeIf { it.isNotEmpty() }?.joinToString(" • ")
+        ?: "Additional workout metrics not recorded"
+}
+
+private fun formatSessionDuration(durationSeconds: Long): String {
+    val totalMinutes = durationSeconds / 60
+    if (totalMinutes == 0L) return "Under 1 min"
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours == 0L) "$totalMinutes min"
+    else if (minutes == 0L) "$hours h"
+    else "$hours h $minutes min"
+}
+
+private data class TrackerChartPoint(val value: Double, val dateLabel: String)
+
 @Composable
-private fun TrackerTrendChart(values: List<Double>, modifier: Modifier = Modifier) {
+private fun TrackerTrendChart(
+    points: List<TrackerChartPoint>,
+    onPointSelected: (TrackerChartPoint) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val values = points.map { it.value }
     val trendColor = MaterialTheme.colorScheme.primary
     val averageLineColor = MaterialTheme.colorScheme.onSurfaceVariant
     val movingAverageColor = MaterialTheme.colorScheme.tertiary
     val average = values.takeIf { it.isNotEmpty() }?.average()
     val movingAverages = movingAverages(values)
+    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
+    fun selectAt(horizontalPosition: Float, chartWidth: Float) {
+        if (points.isEmpty() || chartWidth <= 0f) return
+        val selection = points.indices.minByOrNull { index ->
+            abs(horizontalPosition - chartX(index, points.size, chartWidth))
+        }
+        selectedIndex = selection
+        selection?.let { onPointSelected(points[it]) }
+    }
     Card(
         modifier = modifier.fillMaxWidth().height(220.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        Box(Modifier.fillMaxSize()) {
-            Canvas(Modifier.fillMaxSize().padding(16.dp)) {
+        Box(
+            Modifier.fillMaxSize().pointerInput(points) {
+                detectDragGestures(
+                    onDragStart = { position -> selectAt(position.x, size.width.toFloat()) },
+                    onDrag = { change, _ -> selectAt(change.position.x, size.width.toFloat()) },
+                )
+            },
+        ) {
+            Canvas(
+                Modifier.fillMaxSize().padding(16.dp).pointerInput(points) {
+                    detectTapGestures(onTap = { position -> selectAt(position.x, size.width.toFloat()) })
+                },
+            ) {
                 if (values.isEmpty()) return@Canvas
                 val minimum = values.minOrNull() ?: return@Canvas
                 val maximum = values.maxOrNull() ?: return@Canvas
@@ -747,18 +846,29 @@ private fun TrackerTrendChart(values: List<Double>, modifier: Modifier = Modifie
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 6.dp.toPx())),
                 )
                 values.zipWithNext().forEachIndexed { index, (start, end) ->
-                    val startX = size.width * index / (values.size - 1)
-                    val endX = size.width * (index + 1) / (values.size - 1)
+                    val startX = chartX(index, values.size, size.width)
+                    val endX = chartX(index + 1, values.size, size.width)
                     val startY = size.height - ((start - minimum) / span * size.height).toFloat()
                     val endY = size.height - ((end - minimum) / span * size.height).toFloat()
                     drawLine(trendColor, Offset(startX, startY), Offset(endX, endY), 3.dp.toPx(), cap = StrokeCap.Round)
                 }
                 movingAverages.zipWithNext().forEachIndexed { index, (start, end) ->
-                    val startX = size.width * index / (movingAverages.size - 1)
-                    val endX = size.width * (index + 1) / (movingAverages.size - 1)
+                    val startX = chartX(index, movingAverages.size, size.width)
+                    val endX = chartX(index + 1, movingAverages.size, size.width)
                     val startY = size.height - ((start - minimum) / span * size.height).toFloat()
                     val endY = size.height - ((end - minimum) / span * size.height).toFloat()
                     drawLine(movingAverageColor, Offset(startX, startY), Offset(endX, endY), 2.dp.toPx(), cap = StrokeCap.Round)
+                }
+                values.forEachIndexed { index, value ->
+                    val point = Offset(
+                        chartX(index, values.size, size.width),
+                        size.height - ((value - minimum) / span * size.height).toFloat(),
+                    )
+                    drawCircle(trendColor, radius = 4.dp.toPx(), center = point)
+                    if (index == selectedIndex) {
+                        drawCircle(movingAverageColor, radius = 9.dp.toPx(), center = point)
+                        drawCircle(trendColor, radius = 5.dp.toPx(), center = point)
+                    }
                 }
             }
             average?.let {
@@ -782,6 +892,29 @@ private fun TrackerTrendChart(values: List<Double>, modifier: Modifier = Modifie
         }
     }
 }
+
+@Composable
+private fun TrackerSelectionDetails(point: TrackerChartPoint, unit: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Selected measurement", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(point.dateLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("${"%.1f".format(point.value)} $unit", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+private fun chartX(index: Int, count: Int, width: Float): Float =
+    if (count <= 1) width / 2f else width * index / (count - 1)
 
 private fun movingAverages(values: List<Double>): List<Double> {
     val windowSize = when {
