@@ -319,14 +319,17 @@ fun DashboardScreen(
                 Column(Modifier.fillMaxSize()) {
                     DashboardHeader(onOpenNavigation)
                     Spacer(Modifier.height(12.dp))
-                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
                         MetricGrid(
                             uiState = uiState,
-                            modifier = Modifier.weight(2f).fillMaxHeight(),
+                            modifier = Modifier.weight(1.6f).fillMaxHeight(),
                             onCurrentHeartRateClick = { zoneGuideMetric = HeartRateMetric.CURRENT },
                             onAverageHeartRateClick = { zoneGuideMetric = HeartRateMetric.AVERAGE },
                         )
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
                             HeartRateMonitorPanel(
                                 uiState = uiState,
                                 guidance = bluetoothGuidance,
@@ -334,8 +337,9 @@ fun DashboardScreen(
                                 onStopScan = onStopScan,
                                 onConnect = onConnect,
                                 onDisconnect = onDisconnect,
+                                modifier = Modifier.fillMaxWidth().weight(1f),
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(12.dp))
                             CrossTrainerPanel(
                                 state = ftmsState,
                                 guidance = ftmsGuidance,
@@ -343,6 +347,7 @@ fun DashboardScreen(
                                 onStopScan = onFtmsStopScan,
                                 onConnect = onFtmsConnect,
                                 onDisconnect = onFtmsDisconnect,
+                                modifier = Modifier.fillMaxWidth().weight(1f),
                             )
                         }
                     }
@@ -440,7 +445,7 @@ private fun HeartRateMonitorPanel(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         shape = RoundedCornerShape(16.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp).verticalScroll(rememberScrollState())) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("HEART-RATE MONITOR", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -488,12 +493,14 @@ private fun CrossTrainerPanel(
     onStopScan: () -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
+        modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         shape = RoundedCornerShape(16.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp).verticalScroll(rememberScrollState())) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("CROSS TRAINER", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -1298,6 +1305,23 @@ private fun DashboardPreview() {
     CrosstrainerCompanionTheme {
         DashboardScreen(
             DashboardUiState.from(WorkoutMetrics()),
+        )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 732, heightDp = 412)
+@Composable
+private fun DashboardLandscapePreview() {
+    CrosstrainerCompanionTheme {
+        DashboardScreen(
+            DashboardUiState.from(
+                WorkoutMetrics(
+                    currentCadenceRpm = 72,
+                    averageCadenceRpm = 68,
+                    currentHeartRateBpm = 124,
+                    averageHeartRateBpm = 118,
+                ),
+            ),
         )
     }
 }
