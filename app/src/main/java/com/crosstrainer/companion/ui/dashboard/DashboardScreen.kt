@@ -75,6 +75,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
@@ -983,57 +984,82 @@ private fun MetricCard(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(PaddingValues(18.dp)),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val compact = maxHeight < 170.dp
+            val compressed = maxHeight < 135.dp
+            val padding = if (compact) 10.dp else 18.dp
+            val valueScale = when {
+                compressed -> 0.52f
+                compact -> 0.66f
+                else -> 1f
+            }
+            val historyHeight: Dp = when {
+                compressed -> 20.dp
+                compact -> 34.dp
+                else -> 72.dp
+            }
+            Column(
+                modifier = Modifier.fillMaxSize().padding(PaddingValues(padding)),
+            ) {
                 Text(
                     text = label,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = MaterialTheme.typography.labelMedium.fontSize * if (compact) 0.9f else 1f,
+                    ),
                     fontWeight = FontWeight.Bold,
                 )
                 workoutDurationSeconds?.let { duration ->
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
                     Text(
                         text = formatWorkoutDuration(duration),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.displayLarge.copy(
-                            fontSize = MaterialTheme.typography.displayLarge.fontSize * 0.75f,
+                            fontSize = MaterialTheme.typography.displayLarge.fontSize * if (compact) 0.46f else 0.75f,
                         ),
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
                 if (detail != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(detail, color = valueColor ?: MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
+                    Text(
+                        detail,
+                        color = valueColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = MaterialTheme.typography.labelSmall.fontSize * if (compact) 0.82f else 1f,
+                        ),
+                        maxLines = 1,
+                    )
                 }
-            }
-            if (heartRateSamples.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                HeartRateHistoryChart(
-                    samples = heartRateSamples,
-                    profileAge = profileAge,
-                )
-            }
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    text = metric.value,
-                    style = MaterialTheme.typography.displayLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = valueColor ?: MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = metric.unit,
-                    modifier = Modifier.padding(bottom = 9.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
+                if (heartRateSamples.isNotEmpty()) {
+                    Spacer(Modifier.height(if (compact) 3.dp else 8.dp))
+                    HeartRateHistoryChart(
+                        samples = heartRateSamples,
+                        profileAge = profileAge,
+                        height = historyHeight,
+                    )
+                }
+                Spacer(Modifier.weight(1f, fill = false))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = metric.value,
+                        style = MaterialTheme.typography.displayLarge.copy(
+                            fontSize = MaterialTheme.typography.displayLarge.fontSize * valueScale,
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(if (compact) 4.dp else 8.dp))
+                    Text(
+                        text = metric.unit,
+                        modifier = Modifier.padding(bottom = if (compact) 3.dp else 9.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = MaterialTheme.typography.titleMedium.fontSize * if (compact) 0.78f else 1f,
+                        ),
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
     }
@@ -1049,10 +1075,11 @@ private fun formatWorkoutDuration(durationSeconds: Long): String {
 private fun HeartRateHistoryChart(
     samples: List<HeartRateSample>,
     profileAge: Int?,
+    height: Dp = 72.dp,
     modifier: Modifier = Modifier,
 ) {
     val average = samples.map { it.bpm }.average().takeIf { !it.isNaN() }?.toFloat()
-    Canvas(modifier = modifier.fillMaxWidth().height(72.dp)) {
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
         if (samples.size < 2 || average == null) return@Canvas
         val values = samples.map { it.bpm.toFloat() } + average
         val rawMin = values.minOrNull() ?: return@Canvas
@@ -1313,6 +1340,7 @@ private fun DashboardPreview() {
 @Composable
 private fun DashboardLandscapePreview() {
     CrosstrainerCompanionTheme {
+        val now = System.currentTimeMillis()
         DashboardScreen(
             DashboardUiState.from(
                 WorkoutMetrics(
@@ -1321,6 +1349,16 @@ private fun DashboardLandscapePreview() {
                     currentHeartRateBpm = 124,
                     averageHeartRateBpm = 118,
                 ),
+            ).copy(
+                profileAge = 40,
+                currentHeartRateZone = HeartRateZone.VIGOROUS,
+                averageHeartRateZone = HeartRateZone.VIGOROUS,
+                recentHeartRateSamples = listOf(
+                    HeartRateSample(now - 120_000, 116),
+                    HeartRateSample(now - 60_000, 124),
+                    HeartRateSample(now, 128),
+                ),
+                activeWorkoutDurationSeconds = 2_745,
             ),
         )
     }
