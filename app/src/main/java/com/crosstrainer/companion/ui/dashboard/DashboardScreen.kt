@@ -1039,7 +1039,7 @@ private fun MetricCard(
                         height = historyHeight,
                     )
                 }
-                Spacer(Modifier.weight(1f, fill = false))
+                Spacer(Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         text = metric.value,
